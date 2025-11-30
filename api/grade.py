@@ -11,10 +11,10 @@ def is_multiple_choice(question: str) -> bool:
     patterns = [r'\b[A-D]\.\s', r'\([A-D]\)', r'选项[：:]?\s*[A-D]', r'四个选项']
     return any(re.search(p, question, re.IGNORECASE) for p in patterns)
 
-def handler(request):
-    if request.method != 'POST':
-        return jsonify({"error": "Only POST allowed"}), 405
+app = Flask(__name__)
 
+@app.route('/api/grade', methods=['POST'])
+def grade():
     data = request.get_json()
     question = data.get('question', '').strip()
     user_answer = data.get('user_answer', '').strip()
@@ -69,12 +69,6 @@ def handler(request):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Vercel 入口
-def grade(req):
-    from vercel_wsgi import serve
-    app = Flask(__name__)
-    CORS(app)  # 注意：Vercel 中需处理 CORS
-    @app.route('/api/grade', methods=['POST'])
-    def route():
-        return handler(req)
-    return serve(app, req)
+# Vercel 入口函数
+def handler(event, context):
+    return app(environ=event, start_response=context)
