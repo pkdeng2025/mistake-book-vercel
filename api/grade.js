@@ -1,10 +1,17 @@
 // api/grade.js
 import { NextResponse } from 'next/server';
-import { Qwen } from '@alicloud/dashscope-sdk';
 
-const client = new Qwen({
-  apiKey: process.env.DASHSCOPE_API_KEY,
-});
+// 动态加载 dashscope SDK（通过 CDN）
+let client;
+async function getClient() {
+  if (!client) {
+    const { Qwen } = await import('https://cdn.skypack.dev/@alicloud/dashscope');
+    client = new Qwen({
+      apiKey: process.env.DASHSCOPE_API_KEY,
+    });
+  }
+  return client;
+}
 
 function isMultipleChoice(question) {
   const patterns = [
@@ -27,7 +34,7 @@ export async function POST(request) {
 
     const isMc = isMultipleChoice(question);
     const systemPrompt = 
-      ` "你是一名严谨的中学教师，请根据题目类型采用以下规则批改：\n\n"
+       "你是一名严谨的中学教师，请根据题目类型采用以下规则批改：\n\n"
         
         "📌 如果题目是【选择题】（明显包含 A、B、C、D 等选项）：\n"
         "- 【正确答案】仅写出标准选项字母（如：C）；\n"
@@ -49,6 +56,8 @@ export async function POST(request) {
         "5. 【错因】\n\n"
 
     const userPrompt = `题目：${question}\n我的答案：${userAnswer}`;
+
+    const client = await getClient();
 
     let response;
     if (image) {
