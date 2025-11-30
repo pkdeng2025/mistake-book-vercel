@@ -1,7 +1,0 @@
-{
-  "name": "mistake-book",
-  "version": "1.0.0",
-  "dependencies": {
-    "@alicloud/dashscope": "^1.0.0"
-  }
-}
