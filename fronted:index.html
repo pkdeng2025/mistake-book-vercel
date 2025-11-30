@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>📚 AI 智能错题本</title>
+  <script src="https://unpkg.com/tesseract.js@4/dist/tesseract.min.js"></script>
+  <style>
+    :root { --primary: #4361ee; --light: #f8f9fa; --dark: #212529; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    body { background: #fafbff; color: var(--dark); padding: 20px; max-width: 800px; margin: 0 auto; }
+    h1 { text-align: center; margin: 20px 0; color: var(--primary); }
+    .form-group { margin: 16px 0; }
+    label { display: block; margin-bottom: 6px; font-weight: 600; }
+    input, select, textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 16px; }
+    textarea { min-height: 80px; resize: vertical; }
+    button {
+      background: var(--primary); color: white; border: none; padding: 12px 20px;
+      border-radius: 6px; font-size: 16px; cursor: pointer; width: 100%;
+      transition: opacity 0.2s;
+    }
+    button:hover:not(.loading) { opacity: 0.9; }
+    button.loading { background: #6c757d; cursor: not-allowed; }
+    #previewImg { max-width: 100%; margin-top: 10px; display: none; border-radius: 6px; }
+    .mistake-list { margin-top: 30px; }
+    .mistake-card { background: white; padding: 16px; border-radius: 10px; margin-bottom: 16px; box-shadow: 0 2px 6px rgba(0,0,0,0.05); }
+    .subject-tag { background: #e0e7ff; color: var(--primary); padding: 4px 8px; border-radius: 4px; font-size: 14px; }
+    img.mistake-img { max-width: 100%; margin: 10px 0; border: 1px solid #eee; border-radius: 4px; }
+    .ai-feedback { background: #f0f9ff; padding: 12px; border-left: 4px solid var(--primary); margin-top: 10px; white-space: pre-wrap; }
+    .export-btn { background: #4cc9f0; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>📚 AI 智能错题本</h1>
+
+  <!-- 添加错题表单 -->
+  <div class="form-group">
+    <label for="subject">学科</label>
+    <select id="subject">
+      <option value="数学">数学</option>
+      <option value="物理">物理</option>
+      <option value="化学">化学</option>
+      <option value="英语">英语</option>
+      <option value="语文">语文</option>
+      <option value="其他">其他</option>
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label for="question">题目内容</label>
+    <textarea id="question" placeholder="请输入题目（或上传图片后 OCR 识别）"></textarea>
+  </div>
+
+  <div class="form-group">
+    <label for="imageUpload">上传题目截图（可选）</label>
+    <input type="file" id="imageUpload" accept="image/*">
+    <img id="previewImg" alt="预览">
+    <div id="ocrStatus" style="font-size:14px; color:#666; margin-top:6px;"></div>
+  </div>
+
+  <div class="form-group">
+    <label for="userAnswer">我的答案</label>
+    <textarea id="userAnswer" placeholder="写下你的解答或选择"></textarea>
+  </div>
+
+  <button id="saveBtn">💾 保存错题（自动 AI 批改）</button>
+
+  <!-- 错题列表 -->
+  <div class="mistake-list" id="mistakeList"></div>
+
+  <script>
+    // =============== OCR 功能 ===============
+    document.getElementById('imageUpload').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      const preview = document.getElementById('previewImg');
+      preview.src = URL.createObjectURL(file);
+      preview.style.display = 'block';
+      
+      const status = document.getElementById('ocrStatus');
+      status.textContent = '🔍 正在识别文字...';
+      
+      try {
+        const { data: { text } } = await Tesseract.recognize(file, 'chi_sim+eng', {
+          logger: m => console.log(m),
+        });
+        document.getElementById('question').value = text.trim();
+        status.textContent = '✅ 识别完成！';
+      } catch (err) {
+        status.textContent = '❌ 识别失败，请重试';
+        console.error(err);
+      }
+    });
+
+    // =============== AI 批改 API 调用 ===============
+    async function getAIFeedback(question, userAnswer, imageBase64 = null) {
+      // ⚠️ 替换为你的 Render 后端 URL（部署后填写）
+      const BACKEND_URL = "https://your-backend.onrender.com/grade";
+      
+      const res = await fetch(BACKEND_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question, user_answer: userAnswer, image: imageBase64 })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'AI 服务异常');
+      return data.ai_feedback;
+    }
+
+    // =============== 保存错题 ===============
+    async function saveMistake(subject, question, userAnswer, aiFeedback, imageData) {
+      const mistakes = JSON.parse(localStorage.getItem(`mistakes_${subject}`) || '[]');
+      mistakes.push({
+        id: Date.now().toString(),
+        question,
+        userAnswer,
+        aiFeedback,
+        image: imageData,
+        timestamp: new Date().toLocaleString()
+      });
+      localStorage.setItem(`mistakes_${subject}`, JSON.stringify(mistakes));
+      renderMistakes(); // 刷新列表
+    }
+
+    // =============== 渲染错题列表 ===============
+    function renderMistakes() {
+      const container = document.getElementById('mistakeList');
+      container.innerHTML = '';
+      
+      ['数学', '物理', '化学', '英语', '语文', '其他'].forEach(subject => {
+        const mistakes = JSON.parse(localStorage.getItem(`mistakes_${subject}`) || '[]');
+        if (mistakes.length === 0) return;
+        
+        const subjectDiv = document.createElement('div');
+        subjectDiv.innerHTML = `<h2 style="margin:20px 0 10px 0;">📂 ${subject}</h2>`;
+        container.appendChild(subjectDiv);
+        
+        mistakes.forEach(m => {
+          const card = document.createElement('div');
+          card.className = 'mistake-card';
+          card.innerHTML = `
+            <div><span class="subject-tag">${subject}</span> · ${m.timestamp}</div>
+            <div><strong>题目：</strong>${m.question.replace(/\n/g, '<br>')}</div>
+            <div><strong>我的答案：</strong>${m.userAnswer.replace(/\n/g, '<br>')}</div>
+            ${m.image ? `<img class="mistake-img" src="${m.image}">` : ''}
+            <div class="ai-feedback"><strong>🤖 AI 批改：</strong><br>${m.aiFeedback.replace(/\n/g, '<br>')}</div>
+          `;
+          container.appendChild(card);
+        });
+      });
+    }
+
+    // =============== 保存按钮事件 ===============
+    document.getElementById('saveBtn').addEventListener('click', async () => {
+      const subject = document.getElementById('subject').value;
+      const question = document.getElementById('question').value.trim();
+      const userAnswer = document.getElementById('userAnswer').value.trim();
+      const fileInput = document.getElementById('imageUpload');
+      const file = fileInput.files[0];
+
+      if (!question || !userAnswer) {
+        alert('请填写题目和你的答案！');
+        return;
+      }
+
+      const btn = document.getElementById('saveBtn');
+      btn.classList.add('loading');
+      btn.textContent = '🧠 AI 批改中...';
+
+      let imageData = null;
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = async () => {
+          imageData = reader.result;
+          try {
+            const aiFeedback = await getAIFeedback(question, userAnswer, imageData);
+            saveMistake(subject, question, userAnswer, aiFeedback, imageData);
+            alert('✅ 错题已保存并批改完成！');
+          } catch (err) {
+            alert('❌ AI 批改失败：' + err.message);
+          } finally {
+            resetForm(btn);
+          }
+        };
+        reader.readAsDataURL(file);
+      } else {
+        try {
+          const aiFeedback = await getAIFeedback(question, userAnswer);
+          saveMistake(subject, question, userAnswer, aiFeedback, null);
+          alert('✅ 错题已保存并批改完成！');
+        } catch (err) {
+          alert('❌ AI 批改失败：' + err.message);
+        } finally {
+          resetForm(btn);
+        }
+      }
+    });
+
+    function resetForm(btn) {
+      document.getElementById('question').value = '';
+      document.getElementById('userAnswer').value = '';
+      document.getElementById('imageUpload').value = '';
+      document.getElementById('previewImg').style.display = 'none';
+      document.getElementById('ocrStatus').textContent = '';
+      btn.classList.remove('loading');
+      btn.textContent = '💾 保存错题（自动 AI 批改）';
+    }
+
+    // 初始化
+    renderMistakes();
+  </script>
+</body>
+</html>
