@@ -2,6 +2,6 @@
   "name": "mistake-book",
   "version": "1.0.0",
   "dependencies": {
-    "@alicloud/dashscope-sdk": "^1.0.0"
+    "@alicloud/dashscope": "^1.0.0"
   }
 }
